@@ -15,7 +15,7 @@ app.post("/user", async (req: Request, res: Response) => {
   // get the detrails from user for rtegistering
   const { name, email, bio } = req.body;
   // check if the data given really exists or not, if not return an error
-  if (!name || !email || !bio) {
+  if (!name || !email) {
     return res.status(400).json({ message: "All Feilds are required!" });
   }
   // create the user in database
@@ -47,7 +47,7 @@ app.get("/user/:id", async (req: Request, res: Response) => {
   const user = await User.findById(id);
   // check if user exists or not
   if (!user) {
-    return res.status(404);
+    return res.status(404).json({ message: "User not found!" });
   }
   // after fetching through DB cache the data and set the ttl
   await redis.hset(`user:${id}`, {
@@ -58,4 +58,55 @@ app.get("/user/:id", async (req: Request, res: Response) => {
   await redis.expire(`user:${id}`, 3600); // Time to live set for 1 hr
   // return the user
   res.status(200).json(user);
+});
+
+// update the user profile and update the redis cache
+app.patch("/user/:id", async (req: Request, res: Response) => {
+  // get the id from param
+  const { id } = req.params;
+  // get the updates from body
+  const { name, email, bio } = req.body;
+  // check if the updates exists or not
+  if (!name || !email) {
+    return res.status(400).json({ message: "Name and email are required!" });
+  }
+  // call the db and set the updates
+  const updatedUser = await User.findByIdAndUpdate(
+    id,
+    {
+      name,
+      email,
+      bio,
+    },
+    { new: true, runValidators: true },
+  );
+  // if user doesn't exist the nreturn an error
+  if (!updatedUser) {
+    return res.status(404).json({ message: "User not found!" });
+  }
+  // cahce the updated user profile in redis and update the ttl
+  await redis.hset(`user:${id}`, {
+    name: updatedUser.name,
+    email: updatedUser.email,
+    bio: updatedUser.bio ?? "",
+  });
+  await redis.expire(`user:${id}`, 3600);
+  // return the updated user
+  res.status(200).json(updatedUser);
+});
+
+// delete the user and delete the cache
+app.delete("/user/:id", async (req: Request, res: Response) => {
+  // get the id from param
+  const { id } = req.params;
+  // fetch the user from DB and delete the user
+  const user = await User.findByIdAndDelete(id);
+  // check if the user exists or not
+  if (!user) {
+    return res.status(404).json({ message: "User not found!" });
+  }
+  // delete the cache
+  await redis.del(`user:${id}`);
+  // return the response
+  res.status(200).json({ message: "User deleted successfully" });
 });
